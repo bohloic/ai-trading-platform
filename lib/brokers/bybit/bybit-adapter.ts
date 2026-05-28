@@ -64,7 +64,7 @@ export class BybitAdapter implements BrokerAdapter {
   }): Promise<PriceSubscription> {
     const sub = subscribeBybitTickers({
       symbols: params.symbols,
-      onTick: params.onTick,
+      onTick: params.onTick as any, // On dit à TS de fermer les yeux ici
       onError: params.onError,
     })
     return sub
