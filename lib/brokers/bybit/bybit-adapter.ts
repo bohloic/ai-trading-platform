@@ -1,4 +1,4 @@
-import type { BrokerAdapter, AccountEquity, NewOrder, OrderResult, PriceSubscription } from '@/lib/brokers/types'
+import type { BrokerAdapter, AccountEquity, NewOrder, OrderResult, PriceSubscription, PriceTick } from '@/lib/brokers/types'
 import { BybitRestClient } from '@/lib/brokers/bybit/bybit-rest'
 import { subscribeBybitTickers } from '@/lib/brokers/bybit/bybit-ws'
 
@@ -13,8 +13,11 @@ export class BybitAdapter implements BrokerAdapter {
   private readonly rest = new BybitRestClient()
 
   async getEquity(): Promise<AccountEquity> {
-    // Use v5 wallet balance. For MVP: take totalEquity for USDT.
-    const res = await this.rest.request<BybitApiResponse<{ list?: Array<{ totalEquity?: string; coin?: unknown; accountType?: string }> }>>({
+    const res = await this.rest.request<
+      BybitApiResponse<{
+        list?: Array<{ totalEquity?: string; coin?: unknown; accountType?: string }>
+      }>
+    >({
       method: 'GET',
       path: '/v5/account/wallet-balance',
       query: { accountType: 'UNIFIED' },
@@ -28,7 +31,6 @@ export class BybitAdapter implements BrokerAdapter {
   }
 
   async placeOrder(order: NewOrder): Promise<OrderResult> {
-    // MVP: linear USDT perpetual.
     const side = order.side === 'buy' ? 'Buy' : 'Sell'
     const type = order.type === 'market' ? 'Market' : 'Limit'
 
@@ -59,15 +61,16 @@ export class BybitAdapter implements BrokerAdapter {
 
   async subscribePrices(params: {
     symbols: string[]
-    onTick: (tick: { broker: 'bybit'; symbol: string; price: number; ts: number }) => void
+    onTick: (tick: PriceTick) => void
     onError?: (err: unknown) => void
   }): Promise<PriceSubscription> {
+    // subscribeBybitTickers emits ticks with broker: 'bybit', which satisfies PriceTick.
+    // We cast the onTick wrapper explicitly instead of using `as any`.
     const sub = subscribeBybitTickers({
       symbols: params.symbols,
-      onTick: params.onTick as any, // On dit à TS de fermer les yeux ici
+      onTick: (tick) => params.onTick(tick as PriceTick),
       onError: params.onError,
     })
     return sub
   }
 }
-

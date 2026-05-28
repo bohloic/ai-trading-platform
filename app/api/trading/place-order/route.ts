@@ -6,11 +6,10 @@ import type { BrokerName } from '@/lib/brokers/types'
 import { PriceHub } from '@/lib/prices/price-hub'
 import { ensurePriceStream } from '@/lib/prices/connectors'
 import { assertNotionalWithinMaxPct, RiskBlockedError } from '@/lib/risk/risk-middleware'
-import { db } from '@/lib/db'
-import { brokerConnections, trades } from '@/lib/db/schema'
+import { getDb } from '@/lib/db'
+import { brokerConnections, trades, tradingSettings } from '@/lib/db/schema'
 import { and, eq, sql } from 'drizzle-orm'
 import { getAppEnv } from '@/lib/env'
-import { tradingSettings } from '@/lib/db/schema'
 
 const bodySchema = z.object({
   broker: z.enum(['bybit', 'deriv']),
@@ -52,22 +51,30 @@ export async function POST(req: Request): Promise<Response> {
 
   const input = parsed.data
   const broker = input.broker as BrokerName
+  const db = getDb()
 
-  // Kill switch hardening: if autoTrade is disabled, refuse placing orders via this endpoint.
+  // Kill switch: refuse if autoTrade is disabled
   const [settings] = await db
     .select()
     .from(tradingSettings)
     .where(eq(tradingSettings.userId, userId))
     .limit(1)
+
   if (!settings?.autoTrade) {
     return Response.json({ error: 'AUTO_TRADE_DISABLED' }, { status: 409 })
   }
 
-  // Ensure the user has an active broker connection (even though secrets are env-based).
+  // Ensure the user has an active broker connection
   const [connection] = await db
     .select()
     .from(brokerConnections)
-    .where(and(eq(brokerConnections.userId, userId), eq(brokerConnections.broker, broker), eq(brokerConnections.isActive, true)))
+    .where(
+      and(
+        eq(brokerConnections.userId, userId),
+        eq(brokerConnections.broker, broker),
+        eq(brokerConnections.isActive, true)
+      )
+    )
     .limit(1)
 
   if (!connection) {
@@ -76,7 +83,7 @@ export async function POST(req: Request): Promise<Response> {
 
   const adapter = getBrokerAdapter(broker)
 
-  // Risk check: notional <= 2% equity (configurable via env)
+  // Risk check: notional <= configured % of equity
   const equity = await adapter.getEquity()
 
   // Try to get a mark price from hub; if missing, start stream and re-check once.
@@ -85,7 +92,6 @@ export async function POST(req: Request): Promise<Response> {
     markPrice = PriceHub.getMarkPrice(broker, input.symbol)
   } catch {
     await ensurePriceStream({ broker, symbols: [input.symbol] })
-    // If still missing, fallback to provided limit price (if any).
     const last = PriceHub.getLastTick(broker, input.symbol)
     if (last) markPrice = last.price
     else if (input.price) markPrice = input.price
@@ -113,7 +119,7 @@ export async function POST(req: Request): Promise<Response> {
     leverage: input.leverage,
   })
 
-  // Persist a minimal trade record (entry price = mark price at submit).
+  // Persist trade record
   const [created] = await db
     .insert(trades)
     .values({
@@ -136,4 +142,3 @@ export async function POST(req: Request): Promise<Response> {
     brokerOrderId: orderResult.brokerOrderId,
   })
 }
-

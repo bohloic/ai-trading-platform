@@ -6,14 +6,30 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { signOut } from '@/lib/auth-client'
 import { useRouter } from 'next/navigation'
-import { TrendingUp, TrendingDown, Activity, Brain, AlertTriangle, Settings, LogOut, Wallet, BarChart3, LineChart } from 'lucide-react'
+import {
+  TrendingUp,
+  TrendingDown,
+  Activity,
+  Brain,
+  AlertTriangle,
+  Settings,
+  LogOut,
+  Wallet,
+  BarChart3,
+  LineChart,
+} from 'lucide-react'
 import { TradesPanel } from './trades-panel'
 import { AILearningPanel } from './ai-learning-panel'
 import { BrokersPanel } from './brokers-panel'
 import { SettingsPanel } from './settings-panel'
 import { TradingViewPanel } from './tradingview-panel'
 import { EmergencyStopButton } from './emergency-stop-button'
-import { getTradeStats, getOpenTrades, getLearningErrors, getBrokerConnections } from '@/app/actions/trading'
+import {
+  getTradeStats,
+  getOpenTrades,
+  getLearningErrors,
+  getBrokerConnections,
+} from '@/app/actions/trading'
 
 interface DashboardProps {
   user: {
@@ -23,9 +39,20 @@ interface DashboardProps {
   }
 }
 
+type Stats = {
+  totalTrades: number
+  winningTrades: number
+  losingTrades: number
+  totalPnl: number
+  avgPnlPercent: number
+  winRate: number
+  totalErrors: number
+  avgErrorSeverity: number
+}
+
 export function Dashboard({ user }: DashboardProps) {
   const router = useRouter()
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<Stats>({
     totalTrades: 0,
     winningTrades: 0,
     losingTrades: 0,
@@ -35,10 +62,31 @@ export function Dashboard({ user }: DashboardProps) {
     totalErrors: 0,
     avgErrorSeverity: 0,
   })
-  const [openTrades, setOpenTrades] = useState<any[]>([])
-  const [errors, setErrors] = useState<any[]>([])
-  const [brokers, setBrokers] = useState<any[]>([])
+  const [openTrades, setOpenTrades] = useState<
+    { id: number; symbol: string; side: string; entryPrice: string }[]
+  >([])
+  const [errors, setErrors] = useState<
+    {
+      id: number
+      errorType: string
+      errorSeverity: number | null
+      whatWentWrong: string
+      lessonLearned: string
+      correctionApplied: string | null
+      timesRepeated: number | null
+    }[]
+  >([])
+  const [brokers, setBrokers] = useState<
+    {
+      id: number
+      broker: string
+      isDemo: boolean | null
+      isActive: boolean | null
+      createdAt: Date
+    }[]
+  >([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     async function loadData() {
@@ -53,8 +101,10 @@ export function Dashboard({ user }: DashboardProps) {
         setOpenTrades(tradesData)
         setErrors(errorsData)
         setBrokers(brokersData)
+        setLoadError(null)
       } catch (error) {
         console.error('Failed to load data:', error)
+        setLoadError('Impossible de charger les donnees. Verifiez votre connexion.')
       } finally {
         setLoading(false)
       }
@@ -83,9 +133,7 @@ export function Dashboard({ user }: DashboardProps) {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground hidden sm:block">
-              {user.name}
-            </span>
+            <span className="text-sm text-muted-foreground hidden sm:block">{user.name}</span>
             <EmergencyStopButton />
             <Button variant="ghost" size="sm" onClick={handleSignOut}>
               <LogOut className="w-4 h-4 mr-2" />
@@ -96,6 +144,14 @@ export function Dashboard({ user }: DashboardProps) {
       </header>
 
       <main className="container mx-auto px-4 py-6">
+        {/* Load error banner */}
+        {loadError && (
+          <div className="mb-6 p-4 rounded-lg border border-destructive/50 bg-destructive/5 text-destructive text-sm flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            {loadError}
+          </div>
+        )}
+
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <Card>
@@ -106,7 +162,9 @@ export function Dashboard({ user }: DashboardProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-foreground">{stats.totalTrades}</p>
+              <p className="text-2xl font-bold text-foreground">
+                {loading ? '—' : stats.totalTrades}
+              </p>
               <p className="text-xs text-muted-foreground">
                 {stats.winningTrades} gagnants / {stats.losingTrades} perdants
               </p>
@@ -121,8 +179,12 @@ export function Dashboard({ user }: DashboardProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <p className={`text-2xl font-bold ${stats.winRate >= 50 ? 'text-green-500' : 'text-red-500'}`}>
-                {stats.winRate.toFixed(1)}%
+              <p
+                className={`text-2xl font-bold ${
+                  loading ? 'text-muted-foreground' : stats.winRate >= 50 ? 'text-green-500' : 'text-red-500'
+                }`}
+              >
+                {loading ? '—' : `${stats.winRate.toFixed(1)}%`}
               </p>
               <p className="text-xs text-muted-foreground">Taux de reussite</p>
             </CardContent>
@@ -136,8 +198,14 @@ export function Dashboard({ user }: DashboardProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <p className={`text-2xl font-bold ${stats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                {stats.totalPnl >= 0 ? '+' : ''}{stats.totalPnl.toFixed(2)}$
+              <p
+                className={`text-2xl font-bold ${
+                  loading ? 'text-muted-foreground' : stats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'
+                }`}
+              >
+                {loading
+                  ? '—'
+                  : `${stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toFixed(2)}$`}
               </p>
               <p className="text-xs text-muted-foreground">Profit/Perte</p>
             </CardContent>
@@ -151,7 +219,9 @@ export function Dashboard({ user }: DashboardProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-foreground">{stats.totalErrors}</p>
+              <p className="text-2xl font-bold text-foreground">
+                {loading ? '—' : stats.totalErrors}
+              </p>
               <p className="text-xs text-muted-foreground">
                 Severite moy: {stats.avgErrorSeverity.toFixed(1)}/10
               </p>
@@ -160,12 +230,13 @@ export function Dashboard({ user }: DashboardProps) {
         </div>
 
         {/* Open Positions Alert */}
-        {openTrades.length > 0 && (
+        {!loading && openTrades.length > 0 && (
           <Card className="mb-6 border-yellow-500/50 bg-yellow-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
                 <Activity className="w-4 h-4 text-yellow-500" />
-                {openTrades.length} Position{openTrades.length > 1 ? 's' : ''} Ouverte{openTrades.length > 1 ? 's' : ''}
+                {openTrades.length} Position{openTrades.length > 1 ? 's' : ''} Ouverte
+                {openTrades.length > 1 ? 's' : ''}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -204,7 +275,7 @@ export function Dashboard({ user }: DashboardProps) {
             </TabsTrigger>
             <TabsTrigger value="markets" className="flex items-center gap-2">
               <LineChart className="w-4 h-4" />
-              <span className="hidden sm:inline">Marchés</span>
+              <span className="hidden sm:inline">Marches</span>
             </TabsTrigger>
             <TabsTrigger value="settings" className="flex items-center gap-2">
               <Settings className="w-4 h-4" />

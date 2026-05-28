@@ -22,6 +22,7 @@ type DerivTicksResponse = {
   tick?: { quote?: number; symbol?: string; epoch?: number }
   subscription?: { id?: string }
   error?: { message?: string }
+  req_id?: string
 }
 
 type DerivBuyResponse = {
@@ -33,7 +34,10 @@ type DerivBuyResponse = {
 export class DerivWsClient {
   private ws: WebSocket | null = null
   private readonly onError?: (err: unknown) => void
+  // pending: req_id -> resolver for request/response pairs
   private pending = new Map<string, (data: unknown) => void>()
+  // tickHandlers: registered listeners for streaming tick messages
+  private tickHandlers = new Set<(msg: DerivTicksResponse) => void>()
 
   constructor(opts: DerivWsClientOptions = {}) {
     this.onError = opts.onError
@@ -48,14 +52,26 @@ export class DerivWsClient {
 
     ws.addEventListener('message', (ev) => {
       try {
-        const msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '')
-        const reqId: unknown = msg?.req_id
+        const msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '') as DerivTicksResponse
+
+        // 1. If the message has a req_id that matches a pending request, resolve it.
+        const reqId = msg?.req_id
         if (typeof reqId === 'string') {
           const cb = this.pending.get(reqId)
           if (cb) {
             this.pending.delete(reqId)
             cb(msg)
-            return
+            // Do NOT return here — a tick subscribe confirmation can carry both
+            // a req_id and a msg_type:'tick' simultaneously on first response.
+          }
+        }
+
+        // 2. Route tick messages to all registered tick handlers.
+        // This runs independently of the req_id routing above so ticks are
+        // never silently dropped because they lack a req_id.
+        if (msg?.msg_type === 'tick') {
+          for (const handler of this.tickHandlers) {
+            handler(msg)
           }
         }
       } catch (err) {
@@ -85,6 +101,7 @@ export class DerivWsClient {
     } finally {
       this.ws = null
       this.pending.clear()
+      this.tickHandlers.clear()
     }
   }
 
@@ -116,14 +133,10 @@ export class DerivWsClient {
     onError?: (err: unknown) => void
   }): { close: () => void } {
     if (!this.ws) throw new Error('Deriv WS not connected')
-    const ws = this.ws
 
-    const subscriptions = new Set<string>()
-    const handler = (ev: MessageEvent) => {
+    const handler = (msg: DerivTicksResponse) => {
       try {
-        const msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '') as DerivTicksResponse
         if (msg.error?.message) return
-        if (msg.msg_type !== 'tick') return
         const q = msg.tick?.quote
         const symbol = msg.tick?.symbol
         const epoch = msg.tick?.epoch
@@ -135,22 +148,21 @@ export class DerivWsClient {
       }
     }
 
-    ws.addEventListener('message', handler)
+    this.tickHandlers.add(handler)
 
+    // Subscribe to each symbol — one message per symbol.
     for (const symbol of params.symbols) {
-      subscriptions.add(symbol)
       this.sendRaw({ ticks: symbol, subscribe: 1 })
     }
 
     return {
       close: () => {
-        ws.removeEventListener('message', handler)
-        for (const symbol of subscriptions) {
-          try {
-            this.sendRaw({ forget_all: 'ticks' })
-          } catch {
-            // ignore
-          }
+        this.tickHandlers.delete(handler)
+        // Send forget_all once — not once per symbol.
+        try {
+          this.sendRaw({ forget_all: 'ticks' })
+        } catch {
+          // ignore if WS already closed
         }
       },
     }
@@ -166,4 +178,3 @@ export class DerivWsClient {
     })
   }
 }
-

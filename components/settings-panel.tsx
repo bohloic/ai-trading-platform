@@ -9,11 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { getTradingSettings, updateTradingSettings } from '@/app/actions/trading'
-import { Settings, Shield, Zap, Bell } from 'lucide-react'
+import { Settings, Shield, Zap, Bell, CheckCircle, AlertTriangle } from 'lucide-react'
+
+type SaveStatus = 'idle' | 'saving' | 'success' | 'error'
 
 export function SettingsPanel() {
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [settings, setSettings] = useState({
     riskPerTrade: 2,
     maxDailyLoss: 5,
@@ -51,7 +53,7 @@ export function SettingsPanel() {
   }, [])
 
   const handleSave = async () => {
-    setSaving(true)
+    setSaveStatus('saving')
     try {
       await updateTradingSettings({
         riskPerTrade: (settings.riskPerTrade / 100).toFixed(4),
@@ -63,10 +65,12 @@ export function SettingsPanel() {
         autoTrade: settings.autoTrade,
         notificationsEnabled: settings.notificationsEnabled,
       })
+      setSaveStatus('success')
+      setTimeout(() => setSaveStatus('idle'), 3000)
     } catch (error) {
       console.error('Failed to save settings:', error)
-    } finally {
-      setSaving(false)
+      setSaveStatus('error')
+      setTimeout(() => setSaveStatus('idle'), 4000)
     }
   }
 
@@ -138,7 +142,9 @@ export function SettingsPanel() {
                   min={1}
                   max={10}
                   value={settings.maxOpenTrades}
-                  onChange={(e) => setSettings({ ...settings, maxOpenTrades: parseInt(e.target.value) || 1 })}
+                  onChange={(e) =>
+                    setSettings({ ...settings, maxOpenTrades: parseInt(e.target.value) || 1 })
+                  }
                 />
               </div>
               <div className="space-y-2">
@@ -149,7 +155,9 @@ export function SettingsPanel() {
                   min={1}
                   max={100}
                   value={settings.defaultLeverage}
-                  onChange={(e) => setSettings({ ...settings, defaultLeverage: parseInt(e.target.value) || 1 })}
+                  onChange={(e) =>
+                    setSettings({ ...settings, defaultLeverage: parseInt(e.target.value) || 1 })
+                  }
                 />
               </div>
             </div>
@@ -236,14 +244,30 @@ export function SettingsPanel() {
             <Switch
               id="notifications"
               checked={settings.notificationsEnabled}
-              onCheckedChange={(checked) => setSettings({ ...settings, notificationsEnabled: checked })}
+              onCheckedChange={(checked) =>
+                setSettings({ ...settings, notificationsEnabled: checked })
+              }
             />
           </div>
         </CardContent>
       </Card>
 
-      <Button onClick={handleSave} disabled={saving} className="w-full">
-        {saving ? 'Enregistrement...' : 'Enregistrer les parametres'}
+      {/* Save feedback */}
+      {saveStatus === 'success' && (
+        <div className="flex items-center gap-2 text-green-500 text-sm p-3 rounded-lg bg-green-500/10 border border-green-500/30">
+          <CheckCircle className="w-4 h-4 shrink-0" />
+          Parametres enregistres avec succes.
+        </div>
+      )}
+      {saveStatus === 'error' && (
+        <div className="flex items-center gap-2 text-destructive text-sm p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          Echec de l&apos;enregistrement. Reessayez.
+        </div>
+      )}
+
+      <Button onClick={handleSave} disabled={saveStatus === 'saving'} className="w-full">
+        {saveStatus === 'saving' ? 'Enregistrement...' : 'Enregistrer les parametres'}
       </Button>
     </div>
   )

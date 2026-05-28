@@ -1,4 +1,4 @@
-import type { AccountEquity, BrokerAdapter, NewOrder, OrderResult, PriceSubscription } from '@/lib/brokers/types'
+import type { AccountEquity, BrokerAdapter, NewOrder, OrderResult, PriceSubscription, PriceTick } from '@/lib/brokers/types'
 import { DerivWsClient } from '@/lib/brokers/deriv/deriv-ws'
 
 export class DerivAdapter implements BrokerAdapter {
@@ -25,9 +25,6 @@ export class DerivAdapter implements BrokerAdapter {
   }
 
   async placeOrder(order: NewOrder): Promise<OrderResult> {
-    // MVP: Deriv “buy contract” requires product-specific parameters.
-    // We map a basic CFD/Forex style order is not directly available; Deriv focuses on contracts.
-    // For now, treat qty as “stake” and create a minimal CALL/PUT contract placeholder.
     const client = new DerivWsClient()
     await client.connect()
     try {
@@ -57,7 +54,7 @@ export class DerivAdapter implements BrokerAdapter {
 
   async subscribePrices(params: {
     symbols: string[]
-    onTick: (tick: { broker: 'deriv'; symbol: string; price: number; ts: number }) => void
+    onTick: (tick: PriceTick) => void
     onError?: (err: unknown) => void
   }): Promise<PriceSubscription> {
     const client = new DerivWsClient({ onError: params.onError })
@@ -67,12 +64,14 @@ export class DerivAdapter implements BrokerAdapter {
       client.close()
       throw new Error(`Deriv authorize failed: ${auth.error.message}`)
     }
+
+    // subscribeTicks now emits PriceTick directly — no cast needed.
     const sub = client.subscribeTicks({
       symbols: params.symbols,
-      // On intercepte le tick global et on l'injecte dans ton handler spécifique
-      onTick: (tick) => params.onTick(tick as any),
+      onTick: params.onTick,
       onError: params.onError,
     })
+
     return {
       close: () => {
         sub.close()
@@ -81,4 +80,3 @@ export class DerivAdapter implements BrokerAdapter {
     }
   }
 }
-

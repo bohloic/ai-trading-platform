@@ -3,12 +3,24 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+// Fonts are instantiated here and applied via their .className / .variable
+// properties — they were declared but never applied in the original file.
+const geist = Geist({
+  subsets: ['latin'],
+  variable: '--font-geist-sans',
+  display: 'swap',
+})
+
+const geistMono = Geist_Mono({
+  subsets: ['latin'],
+  variable: '--font-geist-mono',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'AI Trading Bot - Trading Automatise avec Intelligence Artificielle',
-  description: 'Bot de trading IA qui apprend de ses erreurs. Connectez Bybit, Exness, Deriv et tradez automatiquement.',
+  description:
+    'Bot de trading IA qui apprend de ses erreurs. Connectez Bybit, Exness, Deriv et tradez automatiquement.',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -35,7 +47,10 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="fr" className="bg-background">
+    <html
+      lang="fr"
+      className={`bg-background ${geist.variable} ${geistMono.variable}`}
+    >
       <body className="font-sans antialiased bg-background">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}

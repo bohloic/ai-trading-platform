@@ -18,12 +18,12 @@ function parseSymbols(raw: string): string[] {
 export const runtime = 'nodejs'
 
 export async function GET(req: Request): Promise<Response> {
-  if (process.env.VERCEL === '1' || process.env.NODE_ENV === 'production') {
+  if (process.env.VERCEL === '1') {
     return Response.json(
       {
         error: 'REALTIME_DISABLED_IN_PROD',
         message:
-          'Le flux serveur (WS brokers -> SSE) est désactivé en production sur Vercel. Utilisez l’onglet TradingView ou une stratégie realtime côté client/worker.',
+          'Le flux serveur (WS brokers -> SSE) est desactive en production sur Vercel. Utilisez l\'onglet TradingView ou une strategie realtime cote client/worker.',
       },
       { status: 410 }
     )
@@ -40,9 +40,11 @@ export async function GET(req: Request): Promise<Response> {
 
   const broker = parsed.data.broker as BrokerName
   const symbols = parseSymbols(parsed.data.symbols)
-  if (symbols.length === 0) return Response.json({ error: 'No symbols provided' }, { status: 400 })
+  if (symbols.length === 0) {
+    return Response.json({ error: 'No symbols provided' }, { status: 400 })
+  }
 
-  // Start upstream WS streams (best-effort).
+  // Start upstream WS streams (best-effort)
   await ensurePriceStream({ broker, symbols })
 
   const encoder = new TextEncoder()
@@ -78,7 +80,6 @@ export async function GET(req: Request): Promise<Response> {
         }
       }
 
-      // Abort on client disconnect.
       req.signal.addEventListener('abort', abort, { once: true })
     },
   })
@@ -91,4 +92,3 @@ export async function GET(req: Request): Promise<Response> {
     },
   })
 }
-
