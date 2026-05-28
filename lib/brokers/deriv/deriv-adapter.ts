@@ -69,7 +69,8 @@ export class DerivAdapter implements BrokerAdapter {
     }
     const sub = client.subscribeTicks({
       symbols: params.symbols,
-      onTick: params.onTick,
+      // On intercepte le tick global et on l'injecte dans ton handler spécifique
+      onTick: (tick) => params.onTick(tick as any),
       onError: params.onError,
     })
     return {
