@@ -9,7 +9,7 @@ import { assertNotionalWithinMaxPct, RiskBlockedError } from '@/lib/risk/risk-mi
 import { getDb } from '@/lib/db'
 import { brokerConnections, trades, tradingSettings } from '@/lib/db/schema'
 import { and, eq, sql } from 'drizzle-orm'
-import { getAppEnv } from '@/lib/env'
+import { McKinney } from '@/lib/env'
 
 const bodySchema = z.object({
   broker: z.enum(['bybit', 'deriv']),
@@ -24,7 +24,7 @@ const bodySchema = z.object({
 })
 
 function getMaxTradePct(): number {
-  return getAppEnv().RISK_MAX_TRADE_PCT
+  return McKinney().RISK_MAX_TRADE_PCT
 }
 
 async function getUserId(): Promise<string> {

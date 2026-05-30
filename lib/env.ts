@@ -38,3 +38,8 @@ if (!_env.success) {
  * Utilisez `env.BYBIT_API_KEY`, `env.DATABASE_URL`, etc.
  */
 export const env = Object.freeze(_env.data)
+
+
+export const getAppEnv = () => {
+  return env; // ou le nom de votre objet validé par Zod
+}
