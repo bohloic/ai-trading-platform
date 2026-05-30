@@ -5,21 +5,21 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   BETTER_AUTH_URL: z.string().url(),
 
-  // Configuration Bybit avec transformation de types
-  BYBIT_API_KEY: z.string().min(1),
-  BYBIT_API_SECRET: z.string().min(1),
+  // CORRECTION : Configuration Bybit rendue optionnelle au build global
+  BYBIT_API_KEY: z.string().optional(),
+  BYBIT_API_SECRET: z.string().optional(),
   BYBIT_TESTNET: z
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
     .default('false'),
   BYBIT_RECV_WINDOW_MS: z.coerce.number().int().default(5000),
 
-  // Configuration Deriv
-  DERIV_APP_ID: z.string().min(1),
-  DERIV_TOKEN: z.string().min(1),
+  // CORRECTION : Configuration Deriv rendue optionnelle au build global
+  DERIV_APP_ID: z.string().optional(),
+  DERIV_TOKEN: z.string().optional(),
   DERIV_ENV: z.enum(['demo', 'live']).default('demo'),
 
-  // Paramètres de Risque — Hard cap à 5% pour sécurité
+  // Paramètres de Risque — Hard cap à 5% pour sécurité (Reste requis côté serveur)
   RISK_MAX_TRADE_PCT: z.coerce.number().min(0).max(0.05).default(0.02),
 })
 
@@ -35,7 +35,6 @@ if (!_env.success) {
 
 /**
  * Singleton immuable des variables d'environnement validées.
- * Utilisez `env.BYBIT_API_KEY`, `env.DATABASE_URL`, etc.
+ * Utilisez `env.DATABASE_URL`, `env.RISK_MAX_TRADE_PCT`, etc.
  */
 export const env = Object.freeze(_env.data)
-

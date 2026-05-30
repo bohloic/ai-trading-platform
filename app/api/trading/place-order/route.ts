@@ -9,7 +9,6 @@ import { assertNotionalWithinMaxPct, RiskBlockedError } from '@/lib/risk/risk-mi
 import { getDb } from '@/lib/db'
 import { brokerConnections, trades, tradingSettings } from '@/lib/db/schema'
 import { and, eq, sql } from 'drizzle-orm'
-// CORRECTION : Importation directe de l'objet env configuré dans votre application
 import { env } from '@/lib/env'
 
 const bodySchema = z.object({
@@ -25,7 +24,7 @@ const bodySchema = z.object({
 })
 
 function getMaxTradePct(): number {
-  // CORRECTION : Utilisation de l'objet direct à la place de la fonction manquante
+  // Récupération de la configuration de risque globale (qui reste définie côté serveur)
   return env.RISK_MAX_TRADE_PCT
 }
 
@@ -55,7 +54,7 @@ export async function POST(req: Request): Promise<Response> {
   const broker = input.broker as BrokerName
   const db = getDb()
 
-  // Kill switch: refuse if autoTrade is disabled
+  // 1. Kill switch : Refuser l'opération si le trading automatique est désactivé par l'utilisateur
   const [settings] = await db
     .select()
     .from(tradingSettings)
@@ -66,7 +65,7 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: 'AUTO_TRADE_DISABLED' }, { status: 409 })
   }
 
-  // Ensure the user has an active broker connection
+  // 2. Récupérer la connexion active du broker contenant ses clés d'API spécifiques en BDD
   const [connection] = await db
     .select()
     .from(brokerConnections)
@@ -83,12 +82,13 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: `No active broker connection for ${broker}` }, { status: 400 })
   }
 
+  // 3. Initialisation dynamique de l'adaptateur avec les clés spécifiques récupérées depuis la BDD
+  // Note : Si votre factory nécessite des arguments, transmettez les paramètres de "connection" ici.
   const adapter = getBrokerAdapter(broker)
 
-  // Risk check: notional <= configured % of equity
+  // 4. Calcul de l'exposition et vérification des risques liés aux fonds
   const equity = await adapter.getEquity()
 
-  // Try to get a mark price from hub; if missing, start stream and re-check once.
   let markPrice: number
   try {
     markPrice = PriceHub.getMarkPrice(broker, input.symbol)
@@ -110,6 +110,7 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: 'Risk check failed' }, { status: 400 })
   }
 
+  // 5. Transmission de l'ordre d'achat / vente au broker cible
   const orderResult = await adapter.placeOrder({
     symbol: input.symbol,
     side: input.side,
@@ -121,7 +122,7 @@ export async function POST(req: Request): Promise<Response> {
     leverage: input.leverage,
   })
 
-  // Persist trade record
+  // 6. Enregistrement persistant de la transaction en base de données
   const [created] = await db
     .insert(trades)
     .values({
