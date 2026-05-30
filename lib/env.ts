@@ -39,7 +39,3 @@ if (!_env.success) {
  */
 export const env = Object.freeze(_env.data)
 
-
-export const getAppEnv = () => {
-  return env; // ou le nom de votre objet validé par Zod
-}
