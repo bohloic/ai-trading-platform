@@ -112,6 +112,74 @@ export function Dashboard({ user }: DashboardProps) {
     loadData()
   }, [])
 
+  // BRANCHEMENT DIRECT DU MOTEUR DE PRODUCTION PPO (FASTAPI WEBSOCKET)
+  useEffect(() => {
+    const wsUrl = process.env.NEXT_PUBLIC_WS_BACKEND_URL || "ws://127.0.0.1:8000/ws/frontend-dashboard"
+    const tradingSocket = new WebSocket(wsUrl)
+
+    tradingSocket.onopen = () => {
+      console.log('[FRONTEND] Liaison active avec le moteur de trading FastAPI.')
+    }
+
+    tradingSocket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data)
+
+        // Traitement des mises à jour d'ordres envoyées par l'IA
+        if (message.type === "ORDER_EXECUTED") {
+          // 1. Ajout dynamique de la nouvelle position ouverte dans l'alerte
+          setOpenTrades((prevOpenTrades) => [
+            {
+              id: message.order_id || Date.now(),
+              symbol: "R_75", // Symbole de l'indice synthétique Deriv par défaut
+              side: message.action.toLowerCase(),
+              entryPrice: message.price.toFixed(4)
+            },
+            ...prevOpenTrades
+          ])
+
+          // 2. Recalcul instantané des statistiques globales du Dashboard
+          setStats((prevStats) => {
+            const isWin = message.action.toUpperCase() === "BUY" // Hypothèse ou calcul de la métrique
+            const newTotalTrades = prevStats.totalTrades + 1
+            const newWinningTrades = isWin ? prevStats.winningTrades + 1 : prevStats.winningTrades
+            const newLosingTrades = !isWin ? prevStats.losingTrades + 1 : prevStats.losingTrades
+
+            return {
+              ...prevStats,
+              totalTrades: newTotalTrades,
+              winningTrades: newWinningTrades,
+              losingTrades: newLosingTrades,
+              totalPnl: message.balance - 10000.0, // Évolution par rapport au capital de départ
+              winRate: (newWinningTrades / newTotalTrades) * 100
+            }
+          })
+        }
+
+        // Traitement optionnel des flux de marché pour vos graphiques
+        if (message.type === "MARKET_UPDATE") {
+          // Si vous possédez un state local pour le prix courant, mettez-le à jour ici
+        }
+
+      } catch (err) {
+        console.error('[FRONTEND] Erreur lors du parsing des données WebSocket:', err)
+      }
+    }
+
+    tradingSocket.onerror = (error) => {
+      console.error('[FRONTEND] Erreur de canal WebSocket:', error)
+    }
+
+    tradingSocket.onclose = () => {
+      console.log('[FRONTEND] Connexion déconnectée du serveur de signaux.')
+    }
+
+    // Coupure propre de l'écoute si l'utilisateur change de page
+    return () => {
+      tradingSocket.close()
+    }
+  }, [])
+
   const handleSignOut = async () => {
     await signOut()
     router.push('/sign-in')
@@ -180,9 +248,8 @@ export function Dashboard({ user }: DashboardProps) {
             </CardHeader>
             <CardContent>
               <p
-                className={`text-2xl font-bold ${
-                  loading ? 'text-muted-foreground' : stats.winRate >= 50 ? 'text-green-500' : 'text-red-500'
-                }`}
+                className={`text-2xl font-bold ${loading ? 'text-muted-foreground' : stats.winRate >= 50 ? 'text-green-500' : 'text-red-500'
+                  }`}
               >
                 {loading ? '—' : `${stats.winRate.toFixed(1)}%`}
               </p>
@@ -199,9 +266,8 @@ export function Dashboard({ user }: DashboardProps) {
             </CardHeader>
             <CardContent>
               <p
-                className={`text-2xl font-bold ${
-                  loading ? 'text-muted-foreground' : stats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'
-                }`}
+                className={`text-2xl font-bold ${loading ? 'text-muted-foreground' : stats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'
+                  }`}
               >
                 {loading
                   ? '—'
@@ -244,11 +310,10 @@ export function Dashboard({ user }: DashboardProps) {
                 {openTrades.map((trade) => (
                   <div
                     key={trade.id}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium ${
-                      trade.side === 'buy'
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium ${trade.side === 'buy'
                         ? 'bg-green-500/10 text-green-500'
                         : 'bg-red-500/10 text-red-500'
-                    }`}
+                      }`}
                   >
                     {trade.symbol} {trade.side.toUpperCase()} @ {trade.entryPrice}
                   </div>
