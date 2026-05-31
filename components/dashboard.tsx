@@ -1,3 +1,5 @@
+"use client"
+
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -309,8 +311,8 @@ export function Dashboard({ user }: DashboardProps) {
                   <div
                     key={trade.id}
                     className={`px-3 py-1.5 rounded-full text-xs font-medium ${trade.side === 'buy'
-                        ? 'bg-green-500/10 text-green-500'
-                        : 'bg-red-500/10 text-red-500'
+                      ? 'bg-green-500/10 text-green-500'
+                      : 'bg-red-500/10 text-red-500'
                       }`}
                   >
                     {trade.symbol} {trade.side.toUpperCase()} @ {trade.entryPrice}
