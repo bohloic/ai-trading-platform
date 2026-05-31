@@ -8,14 +8,16 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
-import { getTradingSettings, updateTradingSettings } from '@/app/actions/trading'
-import { Settings, Shield, Zap, Bell, CheckCircle, AlertTriangle } from 'lucide-react'
+import { getTradingSettings, updateTradingSettings, getBrokerConnections } from '@/app/actions/trading'
+import { Settings, Shield, Zap, Bell, CheckCircle, AlertTriangle, Info } from 'lucide-react'
+import { toast } from 'sonner'
 
 type SaveStatus = 'idle' | 'saving' | 'success' | 'error'
 
 export function SettingsPanel() {
   const [loading, setLoading] = useState(true)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [isSimulating, setIsSimulating] = useState(false)
   const [settings, setSettings] = useState({
     riskPerTrade: 2,
     maxDailyLoss: 5,
@@ -27,10 +29,19 @@ export function SettingsPanel() {
     notificationsEnabled: true,
   })
 
+  // 1. Chargement des paramètres ET vérification du mode actif (Simulation vs Réel)
   useEffect(() => {
     async function load() {
       try {
-        const data = await getTradingSettings()
+        const [data, brokersData] = await Promise.all([
+          getTradingSettings(),
+          getBrokerConnections()
+        ])
+
+        // Vérifie si le seul canal actif ou si un canal de simulation est configuré
+        const hasSimulation = brokersData?.some(b => b.broker === 'simulation' && b.isActive)
+        setIsSimulating(!!hasSimulation)
+
         if (data) {
           setSettings({
             riskPerTrade: parseFloat(data.riskPerTrade || '0.02') * 100,
@@ -45,6 +56,7 @@ export function SettingsPanel() {
         }
       } catch (error) {
         console.error('Failed to load settings:', error)
+        toast.error("Erreur lors de la récupération de vos configurations serveur.")
       } finally {
         setLoading(false)
       }
@@ -52,8 +64,11 @@ export function SettingsPanel() {
     load()
   }, [])
 
+  // 2. Sauvegarde et application sur la base de données Drizzle (Vercel)
   const handleSave = async () => {
     setSaveStatus('saving')
+    const savingToastId = toast.loading("Synchronisation de vos règles de risque...")
+
     try {
       await updateTradingSettings({
         riskPerTrade: (settings.riskPerTrade / 100).toFixed(4),
@@ -65,11 +80,14 @@ export function SettingsPanel() {
         autoTrade: settings.autoTrade,
         notificationsEnabled: settings.notificationsEnabled,
       })
+
       setSaveStatus('success')
+      toast.success("Configurations mises à jour sur le Cloud !", { id: savingToastId })
       setTimeout(() => setSaveStatus('idle'), 3000)
     } catch (error) {
       console.error('Failed to save settings:', error)
       setSaveStatus('error')
+      toast.error("Échec de l'enregistrement de vos paramètres de risque.", { id: savingToastId })
       setTimeout(() => setSaveStatus('idle'), 4000)
     }
   }
@@ -78,7 +96,10 @@ export function SettingsPanel() {
     return (
       <Card>
         <CardContent className="py-8">
-          <p className="text-center text-muted-foreground">Chargement des parametres...</p>
+          <div className="flex items-center justify-center gap-2">
+            <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            <p className="text-sm text-muted-foreground">Chargement des paramètres de protection...</p>
+          </div>
         </CardContent>
       </Card>
     )
@@ -89,20 +110,20 @@ export function SettingsPanel() {
       {/* Risk Management */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="w-5 h-5" />
-            Gestion du Risque
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Shield className="w-5 h-5 text-primary" />
+            Gestion du Risque Global
           </CardTitle>
           <CardDescription>
-            Configurez les limites de risque pour proteger votre capital
+            Configurez les coupe-circuits automatiques pour protéger votre capital d'investissement.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-4">
             <div>
               <div className="flex items-center justify-between mb-2">
-                <Label>Risque par trade</Label>
-                <span className="text-sm font-medium">{settings.riskPerTrade}%</span>
+                <Label className="text-sm font-medium">Risque par trade</Label>
+                <span className="text-sm font-bold bg-muted px-2 py-0.5 rounded text-primary">{settings.riskPerTrade}%</span>
               </div>
               <Slider
                 value={[settings.riskPerTrade]}
@@ -112,14 +133,14 @@ export function SettingsPanel() {
                 step={0.5}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Pourcentage du capital risque sur chaque trade
+                Allocation de marge maximale allouée par le modèle PPO sur chaque signal détecté.
               </p>
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <Label>Perte journaliere max</Label>
-                <span className="text-sm font-medium">{settings.maxDailyLoss}%</span>
+                <Label className="text-sm font-medium">Perte journalière maximale</Label>
+                <span className="text-sm font-bold bg-muted px-2 py-0.5 rounded text-destructive">{settings.maxDailyLoss}%</span>
               </div>
               <Slider
                 value={[settings.maxDailyLoss]}
@@ -129,13 +150,13 @@ export function SettingsPanel() {
                 step={1}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Le trading s&apos;arrete si cette limite est atteinte
+                Le coupe-circuit global fige l'IA si la perte glissante sur 24h atteint ce seuil.
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 pt-2">
               <div className="space-y-2">
-                <Label htmlFor="maxOpenTrades">Trades ouverts max</Label>
+                <Label htmlFor="maxOpenTrades" className="text-xs">Positions simultanées max</Label>
                 <Input
                   id="maxOpenTrades"
                   type="number"
@@ -148,7 +169,7 @@ export function SettingsPanel() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="defaultLeverage">Levier par defaut</Label>
+                <Label htmlFor="defaultLeverage" className="text-xs">Levier par défaut (Crypto)</Label>
                 <Input
                   id="defaultLeverage"
                   type="number"
@@ -168,17 +189,17 @@ export function SettingsPanel() {
       {/* AI Configuration */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="w-5 h-5" />
-            Configuration IA
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Zap className="w-5 h-5 text-yellow-500" />
+            Configuration de l'Agent Autonome (PPO)
           </CardTitle>
           <CardDescription>
-            Ajustez le comportement de l&apos;agent de trading
+            Ajustez l'agressivité mathématique et le mode opératoire de l'intelligence artificielle.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
-            <Label>Agressivite de l&apos;IA</Label>
+            <Label>Profil de prise de décision</Label>
             <Select
               value={settings.aiAggressiveness}
               onValueChange={(value) => setSettings({ ...settings, aiAggressiveness: value })}
@@ -188,23 +209,23 @@ export function SettingsPanel() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="conservative">
-                  Conservateur - Moins de trades, plus surs
+                  Conservateur - Filtre strict (Précision élevée, volume faible)
                 </SelectItem>
                 <SelectItem value="moderate">
-                  Modere - Equilibre risque/rendement
+                  Modéré - Compromis équilibré (Standard de production)
                 </SelectItem>
                 <SelectItem value="aggressive">
-                  Agressif - Plus de trades, plus risques
+                  Agressif - Exploitation intensive (Volume élevé, risques accrus)
                 </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          <div className="flex items-center justify-between p-4 rounded-lg border border-border">
+          <div className="flex items-center justify-between p-4 rounded-lg border border-border bg-card">
             <div>
-              <Label htmlFor="autoTrade">Trading Automatique</Label>
+              <Label htmlFor="autoTrade" className="text-sm font-semibold">Exécution automatique des signaux</Label>
               <p className="text-xs text-muted-foreground">
-                L&apos;IA execute automatiquement les trades
+                Autorise l'IA à transmettre ses ordres directement au broker sélectionné.
               </p>
             </div>
             <Switch
@@ -214,13 +235,23 @@ export function SettingsPanel() {
             />
           </div>
 
+          {/* AJUSTEMENT : Affichage intelligent adaptatif */}
           {settings.autoTrade && (
-            <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-              <p className="text-sm text-yellow-600 dark:text-yellow-400">
-                Attention: Le trading automatique execute des trades reels.
-                Assurez-vous d&apos;avoir configure correctement vos limites de risque.
-              </p>
-            </div>
+            isSimulating ? (
+              <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/30 flex items-start gap-2">
+                <Info className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                <p className="text-xs text-green-600 dark:text-green-400">
+                  <strong>Mode Simulation actif :</strong> L'activation du trading automatique va lancer le flux d'ordres virtuels générés par l'IA. Aucun fonds réel n'est engagé.
+                </p>
+              </div>
+            ) : (
+              <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
+                <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                  <strong>Attention :</strong> Aucun module de simulation exclusif n'est détecté. Le trading automatique transmettra des ordres fermes sur vos brokers connectés. Surveillez vos positions ou utilisez des comptes démo.
+                </p>
+              </div>
+            )
           )}
         </CardContent>
       </Card>
@@ -228,17 +259,17 @@ export function SettingsPanel() {
       {/* Notifications */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="w-5 h-5" />
-            Notifications
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Bell className="w-5 h-5 text-blue-500" />
+            Canaux de Télémétrie
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between">
             <div>
-              <Label htmlFor="notifications">Notifications temps reel</Label>
+              <Label htmlFor="notifications">Alertes instantanées de l'interface</Label>
               <p className="text-xs text-muted-foreground">
-                Recevez des alertes pour chaque trade
+                Afficher des bannières à l'écran pour chaque prise ou clôture de position par l'IA.
               </p>
             </div>
             <Switch
@@ -252,22 +283,22 @@ export function SettingsPanel() {
         </CardContent>
       </Card>
 
-      {/* Save feedback */}
+      {/* Bottom status indicators */}
       {saveStatus === 'success' && (
-        <div className="flex items-center gap-2 text-green-500 text-sm p-3 rounded-lg bg-green-500/10 border border-green-500/30">
+        <div className="flex items-center gap-2 text-green-500 text-xs p-3 rounded-lg bg-green-500/10 border border-green-500/30">
           <CheckCircle className="w-4 h-4 shrink-0" />
-          Parametres enregistres avec succes.
+          Règles de trading appliquées sur la base de données.
         </div>
       )}
       {saveStatus === 'error' && (
-        <div className="flex items-center gap-2 text-destructive text-sm p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+        <div className="flex items-center gap-2 text-destructive text-xs p-3 rounded-lg bg-destructive/10 border border-destructive/30">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          Echec de l&apos;enregistrement. Reessayez.
+          Échec de la communication réseau avec l'infrastructure.
         </div>
       )}
 
-      <Button onClick={handleSave} disabled={saveStatus === 'saving'} className="w-full">
-        {saveStatus === 'saving' ? 'Enregistrement...' : 'Enregistrer les parametres'}
+      <Button onClick={handleSave} disabled={saveStatus === 'saving'} className="w-full font-semibold">
+        {saveStatus === 'saving' ? 'Synchronisation Cloud...' : 'Appliquer et Enregistrer les paramètres'}
       </Button>
     </div>
   )
