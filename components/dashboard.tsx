@@ -88,7 +88,7 @@ export function Dashboard({ user }: DashboardProps) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  // 1. Fonction centralisée de rafraîchissement des flux de données
+  // A. Fonction de synchronisation globale via Server Actions (PostgreSQL)
   async function refreshDashboardData() {
     try {
       const [statsData, tradesData, errorsData, brokersData] = await Promise.all([
@@ -109,21 +109,80 @@ export function Dashboard({ user }: DashboardProps) {
     }
   }
 
-  // 2. Chargement initial au montage de la page
+  // 1. Chargement initial des données au premier affichage
   useEffect(() => {
     refreshDashboardData()
   }, [])
 
-  // 3. SYNCHRONISATION ROBUSTE PAR INTERVALLE (Remplace le WebSocket capricieux d'Hugging Face)
+  // 2. LE DOUBLE MOTEUR DE SURVEILLANCE ET DE TÉLÉMÉTRIE
   useEffect(() => {
+    // ÉLÉMENT A : Lancement de la pulsation réseau par intervalle de sécurité (Toutes les 4s)
     console.log("[TELEMETRIE] Canal de synchronisation par pulsation réseau actif (Intervalle 4s).")
-    
-    // Interroge votre base de données PostgreSQL toutes les 4 secondes pour voir si l'IA a écrit un ordre
     const intervalId = setInterval(() => {
       refreshDashboardData()
     }, 4000)
 
-    return () => clearInterval(intervalId)
+    // ÉLÉMENT B : Canal d'écoute directe pour capturer instantanément les ordres exécutés par l'IA
+    const rawUrl = process.env.NEXT_PUBLIC_WS_BACKEND_URL 
+      ? process.env.NEXT_PUBLIC_WS_BACKEND_URL 
+      : "wss://kemma23-ai-trading-backend.hf.space/ws/frontend-dashboard"
+
+    const targetWs = rawUrl.includes("hf.space") && !rawUrl.includes("spaces.huggingface.tech")
+      ? rawUrl.replace("kemma23-ai-trading-backend.hf.space", "spaces.huggingface.tech/kemma23/ai-trading-backend")
+      : rawUrl
+
+    let tradingSocket: WebSocket | null = null
+
+    try {
+      tradingSocket = new WebSocket(targetWs)
+
+      tradingSocket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data)
+
+          if (message.type === "ORDER_EXECUTED") {
+            // Mise à jour graphique immédiate avant le prochain tick de 4 secondes
+            setOpenTrades((prevOpenTrades) => [
+              {
+                id: message.order_id || Date.now(),
+                symbol: "R_75",
+                side: message.action.toLowerCase(),
+                entryPrice: message.price.toFixed(4)
+              },
+              ...prevOpenTrades
+            ])
+
+            setStats((prevStats) => {
+              const isWin = message.action.toUpperCase() === "BUY"
+              const newTotalTrades = prevStats.totalTrades + 1
+              const newWinningTrades = isWin ? prevStats.winningTrades + 1 : prevStats.winningTrades
+              const newLosingTrades = !isWin ? prevStats.losingTrades + 1 : prevStats.losingTrades
+
+              return {
+                ...prevStats,
+                totalTrades: newTotalTrades,
+                winningTrades: newWinningTrades,
+                losingTrades: newLosingTrades,
+                totalPnl: message.balance - 10000.0,
+                winRate: (newWinningTrades / newTotalTrades) * 100
+              }
+            })
+          }
+        } catch (err) {
+          console.error('[FRONTEND] Erreur lors du parsing des données en direct:', err)
+        }
+      }
+    } catch (e) {
+      console.error("[WEBSOCKET] Échec d'allocation de l'instance réseau streaming :", e)
+    }
+
+    // Nettoyage complet lors du changement d'onglet ou déconnexion pour préserver la mémoire
+    return () => {
+      clearInterval(intervalId)
+      if (tradingSocket) {
+        tradingSocket.close()
+      }
+    }
   }, [])
 
   const handleSignOut = async () => {
