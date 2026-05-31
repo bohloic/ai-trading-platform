@@ -17,6 +17,7 @@ import {
   Wallet,
   BarChart3,
   LineChart,
+  Coins
 } from 'lucide-react'
 import { TradesPanel } from './trades-panel'
 import { AILearningPanel } from './ai-learning-panel'
@@ -52,6 +53,11 @@ type Stats = {
 
 export function Dashboard({ user }: DashboardProps) {
   const router = useRouter()
+  
+  // FINITION 1 : Récupérer l'onglet mémorisé au chargement, sinon "trades" par défaut
+  const [activeTab, setActiveTab] = useState<string>("trades")
+  const [currentCapital, setCurrentCapital] = useState<number>(10000.00) // Capital initial simulé par l'IA
+
   const [stats, setStats] = useState<Stats>({
     totalTrades: 0,
     winningTrades: 0,
@@ -88,7 +94,15 @@ export function Dashboard({ user }: DashboardProps) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  // A. Fonction de synchronisation globale via Server Actions (PostgreSQL)
+  // 1. Charger l'onglet sauvegardé dans le navigateur (Uniquement côté client)
+  useEffect(() => {
+    const savedTab = localStorage.getItem("dashboard_active_tab")
+    if (savedTab) {
+      setActiveTab(savedTab)
+    }
+  }, [])
+
+  // 2. Fonction de synchronisation globale via Server Actions (PostgreSQL)
   async function refreshDashboardData() {
     try {
       const [statsData, tradesData, errorsData, brokersData] = await Promise.all([
@@ -101,6 +115,12 @@ export function Dashboard({ user }: DashboardProps) {
       setOpenTrades(tradesData)
       setErrors(errorsData)
       setBrokers(brokersData)
+      
+      // Calcule dynamiquement le capital actuel basé sur le PnL retourné
+      if (statsData) {
+        setCurrentCapital(10000.00 + statsData.totalPnl)
+      }
+      
       setLoadError(null)
     } catch (error) {
       console.error('Failed to async background fetch data:', error)
@@ -109,20 +129,19 @@ export function Dashboard({ user }: DashboardProps) {
     }
   }
 
-  // 1. Chargement initial des données au premier affichage
+  // Initialisation des données
   useEffect(() => {
     refreshDashboardData()
   }, [])
 
-  // 2. LE DOUBLE MOTEUR DE SURVEILLANCE ET DE TÉLÉMÉTRIE
+  // 3. MOTEUR DE SURVEILLANCE PAR PULSATION (Polling 4s)
   useEffect(() => {
-    // ÉLÉMENT A : Lancement de la pulsation réseau par intervalle de sécurité (Toutes les 4s)
     console.log("[TELEMETRIE] Canal de synchronisation par pulsation réseau actif (Intervalle 4s).")
     const intervalId = setInterval(() => {
       refreshDashboardData()
     }, 4000)
 
-    // ÉLÉMENT B : Canal d'écoute directe pour capturer instantanément les ordres exécutés par l'IA
+    // Écoute directe WebSocket de secours
     const rawUrl = process.env.NEXT_PUBLIC_WS_BACKEND_URL 
       ? process.env.NEXT_PUBLIC_WS_BACKEND_URL 
       : "wss://kemma23-ai-trading-backend.hf.space/ws/frontend-dashboard"
@@ -135,13 +154,10 @@ export function Dashboard({ user }: DashboardProps) {
 
     try {
       tradingSocket = new WebSocket(targetWs)
-
       tradingSocket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data)
-
           if (message.type === "ORDER_EXECUTED") {
-            // Mise à jour graphique immédiate avant le prochain tick de 4 secondes
             setOpenTrades((prevOpenTrades) => [
               {
                 id: message.order_id || Date.now(),
@@ -151,6 +167,11 @@ export function Dashboard({ user }: DashboardProps) {
               },
               ...prevOpenTrades
             ])
+
+            // Met à jour instantanément la vue du capital d'après le solde balancé par le flux backend
+            if (message.balance) {
+              setCurrentCapital(message.balance)
+            }
 
             setStats((prevStats) => {
               const isWin = message.action.toUpperCase() === "BUY"
@@ -169,21 +190,24 @@ export function Dashboard({ user }: DashboardProps) {
             })
           }
         } catch (err) {
-          console.error('[FRONTEND] Erreur lors du parsing des données en direct:', err)
+          console.error('[FRONTEND] Erreur parsing direct payload:', err)
         }
       }
     } catch (e) {
-      console.error("[WEBSOCKET] Échec d'allocation de l'instance réseau streaming :", e)
+      console.error("[WEBSOCKET] Échec allocation streaming instance :", e)
     }
 
-    // Nettoyage complet lors du changement d'onglet ou déconnexion pour préserver la mémoire
     return () => {
       clearInterval(intervalId)
-      if (tradingSocket) {
-        tradingSocket.close()
-      }
+      if (tradingSocket) tradingSocket.close()
     }
   }, [])
+
+  // Sauvegarder l'onglet sélectionné lors d'un clic utilisateur
+  const handleTabChange = (value: string) => {
+    setActiveTab(value)
+    localStorage.setItem("dashboard_active_tab", value)
+  }
 
   const handleSignOut = async () => {
     await signOut()
@@ -224,8 +248,25 @@ export function Dashboard({ user }: DashboardProps) {
           </div>
         )}
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        {/* FINITION 2 : Grille de 5 Cartes de Statistiques avec intégration du Capital */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <Card className="col-span-2 md:col-span-1 bg-gradient-to-br from-primary/5 via-transparent to-transparent border-primary/20">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-2 text-primary font-medium">
+                <Coins className="w-4 h-4" />
+                Capital Total (Equity)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-black text-foreground">
+                {loading ? '—' : `${currentCapital.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}$`}
+              </p>
+              <p className="text-xs text-muted-foreground font-mono">
+                Dépôt initial: 10 000,00 $
+              </p>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
@@ -238,7 +279,7 @@ export function Dashboard({ user }: DashboardProps) {
                 {loading ? '—' : stats.totalTrades}
               </p>
               <p className="text-xs text-muted-foreground">
-                {stats.winningTrades} gagnants / {stats.losingTrades} perdants
+                {stats.winningTrades} g. / {stats.losingTrades} p.
               </p>
             </CardContent>
           </Card>
@@ -275,7 +316,7 @@ export function Dashboard({ user }: DashboardProps) {
                   ? '—'
                   : `${stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toFixed(2)}$`}
               </p>
-              <p className="text-xs text-muted-foreground">Profit/Perte</p>
+              <p className="text-xs text-muted-foreground">Profit Net / Perte</p>
             </CardContent>
           </Card>
 
@@ -325,7 +366,7 @@ export function Dashboard({ user }: DashboardProps) {
         )}
 
         {/* Main Tabs */}
-        <Tabs defaultValue="trades" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
           <TabsList className="grid grid-cols-5 w-full max-w-2xl">
             <TabsTrigger value="trades" className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4" />
