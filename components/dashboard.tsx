@@ -54,9 +54,15 @@ type Stats = {
 export function Dashboard({ user }: DashboardProps) {
   const router = useRouter()
   
-  // FINITION 1 : Récupérer l'onglet mémorisé au chargement, sinon "trades" par défaut
-  const [activeTab, setActiveTab] = useState<string>("trades")
-  const [currentCapital, setCurrentCapital] = useState<number>(10000.00) // Capital initial simulé par l'IA
+  // Rétablissement immédiat de la navigation de l'utilisateur (Côté client uniquement)
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem("dashboard_active_tab") || "trades"
+    }
+    return "trades"
+  })
+  
+  const [currentCapital, setCurrentCapital] = useState<number>(10000.00)
 
   const [stats, setStats] = useState<Stats>({
     totalTrades: 0,
@@ -70,39 +76,13 @@ export function Dashboard({ user }: DashboardProps) {
   })
   const [openTrades, setOpenTrades] = useState<
     { id: number; symbol: string; side: string; entryPrice: string }[]
-  >([]);
-  const [errors, setErrors] = useState<
-    {
-      id: number
-      errorType: string
-      errorSeverity: number | null
-      whatWentWrong: string
-      lessonLearned: string
-      correctionApplied: string | null
-      timesRepeated: number | null
-    }[]
   >([])
-  const [brokers, setBrokers] = useState<
-    {
-      id: number
-      broker: string
-      isDemo: boolean | null
-      isActive: boolean | null
-      createdAt: Date
-    }[]
-  >([])
+  const [errors, setErrors] = useState<any[]>([])
+  const [brokers, setBrokers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  // 1. Charger l'onglet sauvegardé dans le navigateur (Uniquement côté client)
-  useEffect(() => {
-    const savedTab = localStorage.getItem("dashboard_active_tab")
-    if (savedTab) {
-      setActiveTab(savedTab)
-    }
-  }, [])
-
-  // 2. Fonction de synchronisation globale via Server Actions (PostgreSQL)
+  // Fonction centrale d'interrogation de la télémétrie PostgreSQL (Drizzle)
   async function refreshDashboardData() {
     try {
       const [statsData, tradesData, errorsData, brokersData] = await Promise.all([
@@ -111,37 +91,36 @@ export function Dashboard({ user }: DashboardProps) {
         getLearningErrors(),
         getBrokerConnections(),
       ])
-      setStats(statsData)
-      setOpenTrades(tradesData)
-      setErrors(errorsData)
-      setBrokers(brokersData)
       
-      // Calcule dynamiquement le capital actuel basé sur le PnL retourné
       if (statsData) {
+        setStats(statsData)
         setCurrentCapital(10000.00 + statsData.totalPnl)
+      }
+      if (tradesData) setOpenTrades(tradesData)
+      if (errorsData) setErrors(errorsData)
+      
+      // Sécurité anti-clignotement : On écrase l'état local uniquement si les données serveur sont valides
+      if (brokersData) {
+        setBrokers(brokersData)
       }
       
       setLoadError(null)
     } catch (error) {
-      console.error('Failed to async background fetch data:', error)
+      console.error('Failed to sync data with database:', error)
     } finally {
       setLoading(false)
     }
   }
 
-  // Initialisation des données
+  // Amorce de la télémétrie par pulsation synchrone toutes les 4s
   useEffect(() => {
     refreshDashboardData()
+    const intervalId = setInterval(refreshDashboardData, 4000)
+    return () => clearInterval(intervalId)
   }, [])
 
-  // 3. MOTEUR DE SURVEILLANCE PAR PULSATION (Polling 4s)
+  // Canal de redondance pour l'écoute instantanée des flux WebSocket
   useEffect(() => {
-    console.log("[TELEMETRIE] Canal de synchronisation par pulsation réseau actif (Intervalle 4s).")
-    const intervalId = setInterval(() => {
-      refreshDashboardData()
-    }, 4000)
-
-    // Écoute directe WebSocket de secours
     const rawUrl = process.env.NEXT_PUBLIC_WS_BACKEND_URL 
       ? process.env.NEXT_PUBLIC_WS_BACKEND_URL 
       : "wss://kemma23-ai-trading-backend.hf.space/ws/frontend-dashboard"
@@ -168,7 +147,6 @@ export function Dashboard({ user }: DashboardProps) {
               ...prevOpenTrades
             ])
 
-            // Met à jour instantanément la vue du capital d'après le solde balancé par le flux backend
             if (message.balance) {
               setCurrentCapital(message.balance)
             }
@@ -190,20 +168,18 @@ export function Dashboard({ user }: DashboardProps) {
             })
           }
         } catch (err) {
-          console.error('[FRONTEND] Erreur parsing direct payload:', err)
+          console.error('[FRONTEND] Erreur d\'interprétation du flux direct:', err)
         }
       }
     } catch (e) {
-      console.error("[WEBSOCKET] Échec allocation streaming instance :", e)
+      console.error("[WEBSOCKET] Échec allocation instance réseau streaming :", e)
     }
 
     return () => {
-      clearInterval(intervalId)
       if (tradingSocket) tradingSocket.close()
     }
   }, [])
 
-  // Sauvegarder l'onglet sélectionné lors d'un clic utilisateur
   const handleTabChange = (value: string) => {
     setActiveTab(value)
     localStorage.setItem("dashboard_active_tab", value)
@@ -248,13 +224,13 @@ export function Dashboard({ user }: DashboardProps) {
           </div>
         )}
 
-        {/* FINITION 2 : Grille de 5 Cartes de Statistiques avec intégration du Capital */}
+        {/* Grille de 5 Cartes de Statistiques avec intégration du Capital */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           <Card className="col-span-2 md:col-span-1 bg-gradient-to-br from-primary/5 via-transparent to-transparent border-primary/20">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2 text-primary font-medium">
                 <Coins className="w-4 h-4" />
-                Capital Total (Equity)
+                Capital Actif (Equity)
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -262,7 +238,7 @@ export function Dashboard({ user }: DashboardProps) {
                 {loading ? '—' : `${currentCapital.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}$`}
               </p>
               <p className="text-xs text-muted-foreground font-mono">
-                Dépôt initial: 10 000,00 $
+                Solde calculé en direct
               </p>
             </CardContent>
           </Card>
@@ -292,9 +268,7 @@ export function Dashboard({ user }: DashboardProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <p
-                className={`text-2xl font-bold ${loading ? 'text-muted-foreground' : stats.winRate >= 50 ? 'text-green-500' : 'text-red-500'}`}
-              >
+              <p className={`text-2xl font-bold ${loading ? 'text-muted-foreground' : stats.winRate >= 50 ? 'text-green-500' : 'text-red-500'}`}>
                 {loading ? '—' : `${stats.winRate.toFixed(1)}%`}
               </p>
               <p className="text-xs text-muted-foreground">Taux de réussite</p>
@@ -309,12 +283,8 @@ export function Dashboard({ user }: DashboardProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <p
-                className={`text-2xl font-bold ${loading ? 'text-muted-foreground' : stats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}
-              >
-                {loading
-                  ? '—'
-                  : `${stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toFixed(2)}$`}
+              <p className={`text-2xl font-bold ${loading ? 'text-muted-foreground' : stats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                {loading ? '—' : `${stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toFixed(2)}$`}
               </p>
               <p className="text-xs text-muted-foreground">Profit Net / Perte</p>
             </CardContent>
@@ -350,13 +320,7 @@ export function Dashboard({ user }: DashboardProps) {
             <CardContent>
               <div className="flex flex-wrap gap-2">
                 {openTrades.map((trade) => (
-                  <div
-                    key={trade.id}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium ${trade.side === 'buy'
-                      ? 'bg-green-500/10 text-green-500'
-                      : 'bg-red-500/10 text-red-500'
-                      }`}
-                  >
+                  <div key={trade.id} className={`px-3 py-1.5 rounded-full text-xs font-medium ${trade.side === 'buy' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
                     {trade.symbol} {trade.side.toUpperCase()} @ {trade.entryPrice}
                   </div>
                 ))}
