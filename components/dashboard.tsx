@@ -118,7 +118,7 @@ export function Dashboard({ user }: DashboardProps) {
     // CORRECTION TECHNIQUE : Force l'utilisation de l'URL Hugging Face si process.env est vide au runtime client
     const targetWs = process.env.NEXT_PUBLIC_WS_BACKEND_URL
       ? process.env.NEXT_PUBLIC_WS_BACKEND_URL
-      : "wss://kemma23-ai-trading-backend.hf.space/ws/frontend-dashboard"
+      : "wss://spaces.huggingface.tech/kemma23/ai-trading-backend/ws/frontend-dashboard"
 
     console.log(`[WEBSOCKET] Tentative de liaison avec l'adresse : ${targetWs}`)
     const tradingSocket = new WebSocket(targetWs)
