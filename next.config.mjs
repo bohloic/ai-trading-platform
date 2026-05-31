@@ -15,21 +15,27 @@ const nextConfig = {
             value: [
               // Politique de base : tout vient de soi
               "default-src 'self'",
-              // TradingView nécessite 'unsafe-eval' pour son widget JS
-              "script-src 'self' 'unsafe-eval' https://s3.tradingview.com",
+
+              // CORRECTION TRADINGVIEW : Ajout de 'unsafe-inline' requis pour l'exécution des scripts de widgets
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://s3.tradingview.com https://*.tradingview.com",
+
               // Styles inline tolérés (shadcn/ui, tailwind)
               "style-src 'self' 'unsafe-inline'",
-              // WebSockets et fetch restreints aux brokers officiels uniquement
-              // Empêche l'exfiltration de clés API si XSS
-              "connect-src 'self' wss://*.bybit.com wss://stream.bybit.com wss://stream-testnet.bybit.com wss://*.derivws.com https://*.bybit.com https://api.bybit.com https://api-testnet.bybit.com",
+
+              // CORRECTION WEBSOCKET BACKEND : Ajout de votre URL Hugging Face (https et wss) pour autoriser la liaison de l'IA
+              "connect-src 'self' wss://*.bybit.com wss://stream.bybit.com wss://stream-testnet.bybit.com wss://*.derivws.com https://*.bybit.com https://api.bybit.com https://api-testnet.bybit.com wss://kemma23-ai-trading-backend.hf.space https://kemma23-ai-trading-backend.hf.space https://*.tradingview.com",
+
               // Fonts Google (Geist)
               "font-src 'self' https://fonts.gstatic.com",
+
               // Images depuis soi-même et data: URIs
               "img-src 'self' data: https:",
+
               // Prévient le clickjacking — aucune frame externe autorisée
               "frame-ancestors 'none'",
-              // TradingView widget iframe
-              "frame-src https://www.tradingview.com",
+
+              // TradingView widget iframe (Autorisation des sous-domaines CDN de TradingView)
+              "frame-src https://www.tradingview.com https://*.tradingview.com",
             ].join('; '),
           },
           // Double protection anti-clickjacking (compatibilité navigateurs anciens)
