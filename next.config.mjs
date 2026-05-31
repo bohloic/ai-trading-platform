@@ -23,7 +23,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
 
               // CORRECTION WEBSOCKET BACKEND : Ajout de votre URL Hugging Face (https et wss) pour autoriser la liaison de l'IA
-              "connect-src 'self' wss://*.bybit.com wss://stream.bybit.com wss://stream-testnet.bybit.com wss://*.derivws.com https://*.bybit.com https://api.bybit.com https://api-testnet.bybit.com wss://kemma23-ai-trading-backend.hf.space https://kemma23-ai-trading-backend.hf.space https://*.tradingview.com",
+              "connect-src 'self' wss://*.bybit.com wss://stream.bybit.com wss://stream-testnet.bybit.com wss://*.derivws.com https://*.bybit.com https://api.bybit.com https://api-testnet.bybit.com wss://kemma23-ai-trading-backend.hf.space https://kemma23-ai-trading-backend.hf.space wss://spaces.huggingface.tech https://*.tradingview.com",
 
               // Fonts Google (Geist)
               "font-src 'self' https://fonts.gstatic.com",
