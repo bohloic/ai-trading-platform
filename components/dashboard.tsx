@@ -113,74 +113,87 @@ export function Dashboard({ user }: DashboardProps) {
     loadData()
   }, [])
 
-  // 2. BRANCHEMENT DYNAMIQUE ET SÉCURISÉ DU WEBSOCKET CLOUD
+  // 2. BRANCHEMENT DYNAMIQUE ET SÉCURISÉ DU WEBSOCKET CLOUD SUR LE PROXY HUGGING FACE
   useEffect(() => {
-    // CORRECTION TECHNIQUE : Force l'utilisation de l'URL Hugging Face si process.env est vide au runtime client
-    const targetWs = process.env.NEXT_PUBLIC_WS_BACKEND_URL
+    // CORRECTION TECHNIQUE : Traduction automatique du nom de domaine pour traverser les pare-feux Hugging Face
+    const rawUrl = process.env.NEXT_PUBLIC_WS_BACKEND_URL
       ? process.env.NEXT_PUBLIC_WS_BACKEND_URL
-      : "wss://spaces.huggingface.tech/kemma23/ai-trading-backend/ws/frontend-dashboard"
+      : "wss://kemma23-ai-trading-backend.hf.space/ws/frontend-dashboard"
 
-    console.log(`[WEBSOCKET] Tentative de liaison avec l'adresse : ${targetWs}`)
-    const tradingSocket = new WebSocket(targetWs)
+    const targetWs = rawUrl.includes("hf.space") && !rawUrl.includes("spaces.huggingface.tech")
+      ? rawUrl.replace("kemma23-ai-trading-backend.hf.space", "spaces.huggingface.tech/kemma23/ai-trading-backend")
+      : rawUrl
 
-    tradingSocket.onopen = () => {
-      console.log('[FRONTEND] Liaison active avec le moteur de trading FastAPI.')
-    }
+    console.log(`[WEBSOCKET] Canal de routage sécurisé Cloud : ${targetWs}`)
+    let tradingSocket: WebSocket | null = null
 
-    tradingSocket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data)
+    try {
+      tradingSocket = new WebSocket(targetWs)
 
-        // Traitement des mises à jour d'ordres envoyées par l'IA
-        if (message.type === "ORDER_EXECUTED") {
-          setOpenTrades((prevOpenTrades) => [
-            {
-              id: message.order_id || Date.now(),
-              symbol: "R_75",
-              side: message.action.toLowerCase(),
-              entryPrice: message.price.toFixed(4)
-            },
-            ...prevOpenTrades
-          ])
-
-          setStats((prevStats) => {
-            const isWin = message.action.toUpperCase() === "BUY"
-            const newTotalTrades = prevStats.totalTrades + 1
-            const newWinningTrades = isWin ? prevStats.winningTrades + 1 : prevStats.winningTrades
-            const newLosingTrades = !isWin ? prevStats.losingTrades + 1 : prevStats.losingTrades
-
-            return {
-              ...prevStats,
-              totalTrades: newTotalTrades,
-              winningTrades: newWinningTrades,
-              losingTrades: newLosingTrades,
-              totalPnl: message.balance - 10000.0,
-              winRate: (newWinningTrades / newTotalTrades) * 100
-            }
-          })
-        }
-
-        if (message.type === "MARKET_UPDATE") {
-          // Emplacement pour vos futurs states de graphiques graphiques en temps réel
-        }
-
-      } catch (err) {
-        console.error('[FRONTEND] Erreur lors du parsing des données WebSocket:', err)
+      tradingSocket.onopen = () => {
+        console.log('[FRONTEND] Liaison active et validée avec le serveur FastAPI.')
       }
-    }
 
-    tradingSocket.onerror = (error) => {
-      console.error('[FRONTEND] Erreur de canal WebSocket détectée:', error)
-    }
+      tradingSocket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data)
 
-    tradingSocket.onclose = () => {
-      console.log('[FRONTEND] Connexion déconnectée du serveur de signaux.')
+          // Traitement des mises à jour d'ordres envoyées par l'IA
+          if (message.type === "ORDER_EXECUTED") {
+            setOpenTrades((prevOpenTrades) => [
+              {
+                id: message.order_id || Date.now(),
+                symbol: "R_75",
+                side: message.action.toLowerCase(),
+                entryPrice: message.price.toFixed(4)
+              },
+              ...prevOpenTrades
+            ])
+
+            setStats((prevStats) => {
+              const isWin = message.action.toUpperCase() === "BUY"
+              const newTotalTrades = prevStats.totalTrades + 1
+              const newWinningTrades = isWin ? prevStats.winningTrades + 1 : prevStats.winningTrades
+              const newLosingTrades = !isWin ? prevStats.losingTrades + 1 : prevStats.losingTrades
+
+              return {
+                ...prevStats,
+                totalTrades: newTotalTrades,
+                winningTrades: newWinningTrades,
+                losingTrades: newLosingTrades,
+                totalPnl: message.balance - 10000.0,
+                winRate: (newWinningTrades / newTotalTrades) * 100
+              }
+            })
+          }
+
+          if (message.type === "MARKET_UPDATE") {
+            // Emplacement pour vos futurs states de graphiques en temps réel
+          }
+
+        } catch (err) {
+          console.error('[FRONTEND] Erreur lors du parsing des données WebSocket:', err)
+        }
+      }
+
+      tradingSocket.onerror = (error) => {
+        console.error('[FRONTEND] Erreur de canal WebSocket détectée (Vérifiez le statut du Space HF):', error)
+      }
+
+      tradingSocket.onclose = (event) => {
+        console.log('[FRONTEND] Connexion déconnectée du serveur de signaux de manière propre.', event.reason)
+      }
+
+    } catch (e) {
+      console.error("[WEBSOCKET] Échec d'allocation réseau de l'instance client :", e)
     }
 
     return () => {
-      tradingSocket.close()
+      if (tradingSocket) {
+        tradingSocket.close()
+      }
     }
-  }, [])
+  }, []) // Tableau de dépendances vide pour figer l'écoute sans boucles infinies de re-rendering
 
   const handleSignOut = async () => {
     await signOut()
