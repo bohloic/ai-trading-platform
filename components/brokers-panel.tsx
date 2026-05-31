@@ -10,20 +10,29 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { addBrokerConnection, deleteBrokerConnection } from '@/app/actions/trading'
 import { Wallet, Plus, Trash2, CheckCircle, AlertCircle } from 'lucide-react'
+import { toast } from 'sonner'
+
+interface BrokerItem {
+  id: number
+  broker: string
+  isDemo: boolean | null
+  isActive: boolean | null
+  createdAt: Date | string
+}
 
 interface BrokersPanelProps {
-  brokers: any[]
+  brokers: BrokerItem[]
 }
 
 const brokerInfo: Record<string, { name: string; description: string }> = {
   bybit: { name: 'Bybit', description: 'Exchange crypto avec futures et spot' },
   exness: { name: 'Exness', description: 'Broker forex et CFD' },
   deriv: { name: 'Deriv', description: 'Options binaires et forex' },
-  simulation: { name: 'Simulation', description: 'Mode demo sans argent reel' },
+  simulation: { name: 'Simulation', description: 'Moteur de simulation IA sans argent réel' },
 }
 
 export function BrokersPanel({ brokers: initialBrokers }: BrokersPanelProps) {
-  const [brokers, setBrokers] = useState(initialBrokers)
+  const [brokers, setBrokers] = useState<BrokerItem[]>(initialBrokers)
   const [showForm, setShowForm] = useState(false)
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
@@ -37,41 +46,52 @@ export function BrokersPanel({ brokers: initialBrokers }: BrokersPanelProps) {
     e.preventDefault()
     if (!formData.broker) return
 
+    // Sécurité : Si c'est une simulation, pas besoin de clés d'API globales
+    if (formData.broker !== 'simulation' && (!formData.apiKey || !formData.apiSecret)) {
+      toast.error("Veuillez renseigner vos identifiants d'API de trading.")
+      return
+    }
+
     setLoading(true)
     try {
       await addBrokerConnection({
         broker: formData.broker,
-        apiKey: formData.broker === 'simulation' ? undefined : formData.apiKey,
-        apiSecret: formData.broker === 'simulation' ? undefined : formData.apiSecret,
-        isDemo: formData.isDemo,
+        apiKey: formData.broker === 'simulation' ? 'SIMULATION_KEY' : formData.apiKey,
+        apiSecret: formData.broker === 'simulation' ? 'SIMULATION_SECRET' : formData.apiSecret,
+        isDemo: formData.broker === 'simulation' ? true : formData.isDemo,
       })
-      
-      // Refresh the list
-      setBrokers([...brokers, {
+
+      const newConnection: BrokerItem = {
         id: Date.now(),
         broker: formData.broker,
-        isDemo: formData.isDemo,
+        isDemo: formData.broker === 'simulation' ? true : formData.isDemo,
         isActive: true,
         createdAt: new Date().toISOString(),
-      }])
-      
+      }
+
+      setBrokers((prev) => [...prev, newConnection])
+      toast.success(`${brokerInfo[formData.broker]?.name || formData.broker} configuré avec succès !`)
+
       setFormData({ broker: '', apiKey: '', apiSecret: '', isDemo: true })
       setShowForm(false)
     } catch (error) {
       console.error('Failed to add broker:', error)
+      toast.error("Échec de la liaison avec le broker. Vérifiez vos paramètres.")
     } finally {
       setLoading(false)
     }
   }
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Voulez-vous vraiment supprimer cette connexion?')) return
-    
+    if (!confirm('Voulez-vous vraiment supprimer cette connexion ? Cela arrêtera les flux associés.')) return
+
     try {
       await deleteBrokerConnection(id)
-      setBrokers(brokers.filter((b) => b.id !== id))
+      setBrokers((prev) => prev.filter((b) => b.id !== id))
+      toast.error("Connexion broker révoquée.")
     } catch (error) {
       console.error('Failed to delete broker:', error)
+      toast.error("Impossible de supprimer la configuration.")
     }
   }
 
@@ -86,7 +106,7 @@ export function BrokersPanel({ brokers: initialBrokers }: BrokersPanelProps) {
                 Connexions Brokers
               </CardTitle>
               <CardDescription>
-                Connectez vos comptes de trading pour activer le trading automatique
+                Connectez vos comptes de trading ou activez le simulateur pour animer le Dashboard.
               </CardDescription>
             </div>
             <Button onClick={() => setShowForm(!showForm)} variant={showForm ? 'outline' : 'default'}>
@@ -97,36 +117,42 @@ export function BrokersPanel({ brokers: initialBrokers }: BrokersPanelProps) {
         </CardHeader>
         <CardContent>
           {showForm && (
-            <form onSubmit={handleSubmit} className="mb-6 p-4 rounded-lg border border-border bg-muted/30">
+            <form onSubmit={handleSubmit} className="mb-6 p-4 rounded-lg border border-border bg-muted/30 animate-in fade-in-50 duration-200">
               <div className="grid gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="broker">Broker</Label>
                   <Select
                     value={formData.broker}
-                    onValueChange={(value) => setFormData({ ...formData, broker: value })}
+                    onValueChange={(value) => setFormData({
+                      ...formData,
+                      broker: value,
+                      isDemo: value === 'simulation' ? true : formData.isDemo
+                    })}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Selectionnez un broker" />
+                      <SelectValue placeholder="Sélectionnez un environnement" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="bybit">Bybit - Crypto Futures</SelectItem>
                       <SelectItem value="exness">Exness - Forex/CFD</SelectItem>
                       <SelectItem value="deriv">Deriv - Options/Forex</SelectItem>
-                      <SelectItem value="simulation">Simulation - Mode Demo</SelectItem>
+                      <SelectItem value="simulation">Simulation - Mode Démo IA</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                {formData.broker && formData.broker !== 'simulation' && (
+                {/* MODIFICATION : Masquage intelligent des entrées si mode simulation sélectionné */}
+                {formData.broker && formData.broker !== 'simulation' ? (
                   <>
                     <div className="grid gap-2">
-                      <Label htmlFor="apiKey">Cle API</Label>
+                      <Label htmlFor="apiKey">Clé API</Label>
                       <Input
                         id="apiKey"
                         type="password"
                         value={formData.apiKey}
                         onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-                        placeholder="Entrez votre cle API"
+                        placeholder="Entrez votre clé API"
+                        required
                       />
                     </div>
 
@@ -138,14 +164,15 @@ export function BrokersPanel({ brokers: initialBrokers }: BrokersPanelProps) {
                         value={formData.apiSecret}
                         onChange={(e) => setFormData({ ...formData, apiSecret: e.target.value })}
                         placeholder="Entrez votre secret API"
+                        required
                       />
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between border-t border-border/50 pt-2">
                       <div>
-                        <Label htmlFor="isDemo">Mode Demo</Label>
+                        <Label htmlFor="isDemo">Mode Démo / Sandbox</Label>
                         <p className="text-xs text-muted-foreground">
-                          Utilisez le compte de demonstration
+                          Utiliser le réseau de testnet du broker
                         </p>
                       </div>
                       <Switch
@@ -155,10 +182,14 @@ export function BrokersPanel({ brokers: initialBrokers }: BrokersPanelProps) {
                       />
                     </div>
                   </>
-                )}
+                ) : formData.broker === 'simulation' ? (
+                  <div className="p-3 rounded bg-primary/5 border border-primary/20 text-xs text-muted-foreground">
+                    💡 <strong>Mode Simulation :</strong> L'IA va générer et alimenter de fausses transactions d'entraînement directement sur votre interface sans nécessiter de clés réelles.
+                  </div>
+                ) : null}
 
-                <Button type="submit" disabled={loading || !formData.broker}>
-                  {loading ? 'Connexion...' : 'Connecter le broker'}
+                <Button type="submit" disabled={loading || !formData.broker} className="mt-2">
+                  {loading ? 'Interconnexion...' : formData.broker === 'simulation' ? 'Activer le Simulateur' : 'Enregistrer le compte broker'}
                 </Button>
               </div>
             </form>
@@ -169,8 +200,8 @@ export function BrokersPanel({ brokers: initialBrokers }: BrokersPanelProps) {
               <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
                 <Wallet className="w-8 h-8 text-muted-foreground" />
               </div>
-              <p className="text-muted-foreground mb-4">
-                Aucun broker connecte. Ajoutez votre premier broker pour commencer.
+              <p className="text-muted-foreground mb-4 max-w-sm">
+                Aucun canal de trading actif. Ajoutez votre compte ou le simulateur d'IA pour démarrer la réception de signaux.
               </p>
               {!showForm && (
                 <Button onClick={() => setShowForm(true)}>
@@ -184,7 +215,7 @@ export function BrokersPanel({ brokers: initialBrokers }: BrokersPanelProps) {
               {brokers.map((broker) => (
                 <div
                   key={broker.id}
-                  className="flex items-center justify-between p-4 rounded-lg border border-border bg-card"
+                  className="flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-muted/10 transition-colors"
                 >
                   <div className="flex items-center gap-4">
                     <div className={`p-2 rounded-full ${broker.isActive ? 'bg-green-500/10' : 'bg-muted'}`}>
@@ -196,11 +227,11 @@ export function BrokersPanel({ brokers: initialBrokers }: BrokersPanelProps) {
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-foreground">
+                        <span className="font-semibold text-foreground text-sm">
                           {brokerInfo[broker.broker]?.name || broker.broker}
                         </span>
-                        <Badge variant={broker.isDemo ? 'secondary' : 'default'}>
-                          {broker.isDemo ? 'Demo' : 'Reel'}
+                        <Badge variant={broker.broker === 'simulation' || broker.isDemo ? 'secondary' : 'default'}>
+                          {broker.broker === 'simulation' ? 'Simulateur' : broker.isDemo ? 'Démo' : 'Réel'}
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -212,7 +243,7 @@ export function BrokersPanel({ brokers: initialBrokers }: BrokersPanelProps) {
                     variant="ghost"
                     size="sm"
                     onClick={() => handleDelete(broker.id)}
-                    className="text-destructive hover:text-destructive"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>
@@ -227,30 +258,29 @@ export function BrokersPanel({ brokers: initialBrokers }: BrokersPanelProps) {
         <CardHeader>
           <CardTitle>Instructions de connexion</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="p-4 rounded-lg bg-muted/50">
-            <h4 className="font-medium mb-2">Bybit</h4>
-            <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-              <li>Connectez-vous a votre compte Bybit</li>
-              <li>Allez dans API Management</li>
-              <li>Creez une nouvelle cle API avec permissions de trading</li>
-              <li>Copiez la cle et le secret</li>
+        <CardContent className="grid gap-4 sm:grid-cols-3">
+          <div className="p-4 rounded-lg bg-muted/40 border border-border/40">
+            <h4 className="font-medium text-sm mb-2 text-primary">Bybit</h4>
+            <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+              <li>API Management Bybit</li>
+              <li>Créer une clé système</li>
+              <li>Activer permissions "Trading"</li>
             </ol>
           </div>
-          <div className="p-4 rounded-lg bg-muted/50">
-            <h4 className="font-medium mb-2">Exness</h4>
-            <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-              <li>Connectez-vous a votre espace personnel Exness</li>
-              <li>Allez dans Settings &gt; API</li>
-              <li>Generez vos identifiants API</li>
+          <div className="p-4 rounded-lg bg-muted/40 border border-border/40">
+            <h4 className="font-medium text-sm mb-2 text-primary">Exness</h4>
+            <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+              <li>Paramètres personnels</li>
+              <li>Onglet API de terminal</li>
+              <li>Générer jeton d'accès</li>
             </ol>
           </div>
-          <div className="p-4 rounded-lg bg-muted/50">
-            <h4 className="font-medium mb-2">Deriv</h4>
-            <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-              <li>Connectez-vous a Deriv</li>
-              <li>Allez dans Account Settings &gt; API Token</li>
-              <li>Creez un token avec les permissions necessaires</li>
+          <div className="p-4 rounded-lg bg-muted/40 border border-border/40">
+            <h4 className="font-medium text-sm mb-2 text-primary">Deriv</h4>
+            <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+              <li>Account Settings</li>
+              <li>Section API Token</li>
+              <li>Permissions "Trade & Read"</li>
             </ol>
           </div>
         </CardContent>
