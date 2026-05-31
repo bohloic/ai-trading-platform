@@ -54,15 +54,10 @@ type Stats = {
 export function Dashboard({ user }: DashboardProps) {
   const router = useRouter()
   
-  // Rétablissement immédiat de la navigation de l'utilisateur (Côté client uniquement)
-  const [activeTab, setActiveTab] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem("dashboard_active_tab") || "trades"
-    }
-    return "trades"
-  })
-  
-  const [currentCapital, setCurrentCapital] = useState<number>(10000.00)
+  // SOLUTION ERREUR 418 : Initialisation neutre sur le serveur pour l'hydratation
+  const [activeTab, setActiveTab] = useState<string>("trades")
+  const [currentCapital, setCurrentCapital] = useState<number>(0.00)
+  const [isMounted, setIsMounted] = useState<boolean>(false)
 
   const [stats, setStats] = useState<Stats>({
     totalTrades: 0,
@@ -82,6 +77,15 @@ export function Dashboard({ user }: DashboardProps) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
+  // Lecture sécurisée du localStorage uniquement après le rendu initial sur le client
+  useEffect(() => {
+    setIsMounted(true)
+    const savedTab = localStorage.getItem("dashboard_active_tab")
+    if (savedTab) {
+      setActiveTab(savedTab)
+    }
+  }, [])
+
   // Fonction centrale d'interrogation de la télémétrie PostgreSQL (Drizzle)
   async function refreshDashboardData() {
     try {
@@ -99,7 +103,7 @@ export function Dashboard({ user }: DashboardProps) {
       if (tradesData) setOpenTrades(tradesData)
       if (errorsData) setErrors(errorsData)
       
-      // Sécurité anti-clignotement : On écrase l'état local uniquement si les données serveur sont valides
+      // Sécurité anti-clignotement : Mise à jour uniquement si les données sont valides
       if (brokersData) {
         setBrokers(brokersData)
       }
@@ -190,6 +194,9 @@ export function Dashboard({ user }: DashboardProps) {
     router.push('/sign-in')
     router.refresh()
   }
+
+  // Bloc de garde : Bloque l'arbre de rendu HTML tant que le client n'est pas synchronisé
+  if (!isMounted) return null
 
   return (
     <div className="min-h-screen bg-background">
