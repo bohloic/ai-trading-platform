@@ -64,7 +64,7 @@ export function Dashboard({ user }: DashboardProps) {
   })
   const [openTrades, setOpenTrades] = useState<
     { id: number; symbol: string; side: string; entryPrice: string }[]
-  >([])
+  >([]);
   const [errors, setErrors] = useState<
     {
       id: number
@@ -88,6 +88,7 @@ export function Dashboard({ user }: DashboardProps) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
+  // 1. Chargement initial des données via Server Actions
   useEffect(() => {
     async function loadData() {
       try {
@@ -104,7 +105,7 @@ export function Dashboard({ user }: DashboardProps) {
         setLoadError(null)
       } catch (error) {
         console.error('Failed to load data:', error)
-        setLoadError('Impossible de charger les donnees. Verifiez votre connexion.')
+        setLoadError('Impossible de charger les données du serveur. Vérifiez votre connexion.')
       } finally {
         setLoading(false)
       }
@@ -112,10 +113,15 @@ export function Dashboard({ user }: DashboardProps) {
     loadData()
   }, [])
 
-  // BRANCHEMENT DIRECT DU MOTEUR DE PRODUCTION PPO (FASTAPI WEBSOCKET)
+  // 2. BRANCHEMENT DYNAMIQUE ET SÉCURISÉ DU WEBSOCKET CLOUD
   useEffect(() => {
-    const wsUrl = process.env.NEXT_PUBLIC_WS_BACKEND_URL || "ws://127.0.0.1:8000/ws/frontend-dashboard"
-    const tradingSocket = new WebSocket(wsUrl)
+    // CORRECTION TECHNIQUE : Force l'utilisation de l'URL Hugging Face si process.env est vide au runtime client
+    const targetWs = process.env.NEXT_PUBLIC_WS_BACKEND_URL
+      ? process.env.NEXT_PUBLIC_WS_BACKEND_URL
+      : "wss://kemma23-ai-trading-backend.hf.space/ws/frontend-dashboard"
+
+    console.log(`[WEBSOCKET] Tentative de liaison avec l'adresse : ${targetWs}`)
+    const tradingSocket = new WebSocket(targetWs)
 
     tradingSocket.onopen = () => {
       console.log('[FRONTEND] Liaison active avec le moteur de trading FastAPI.')
@@ -127,20 +133,18 @@ export function Dashboard({ user }: DashboardProps) {
 
         // Traitement des mises à jour d'ordres envoyées par l'IA
         if (message.type === "ORDER_EXECUTED") {
-          // 1. Ajout dynamique de la nouvelle position ouverte dans l'alerte
           setOpenTrades((prevOpenTrades) => [
             {
               id: message.order_id || Date.now(),
-              symbol: "R_75", // Symbole de l'indice synthétique Deriv par défaut
+              symbol: "R_75",
               side: message.action.toLowerCase(),
               entryPrice: message.price.toFixed(4)
             },
             ...prevOpenTrades
           ])
 
-          // 2. Recalcul instantané des statistiques globales du Dashboard
           setStats((prevStats) => {
-            const isWin = message.action.toUpperCase() === "BUY" // Hypothèse ou calcul de la métrique
+            const isWin = message.action.toUpperCase() === "BUY"
             const newTotalTrades = prevStats.totalTrades + 1
             const newWinningTrades = isWin ? prevStats.winningTrades + 1 : prevStats.winningTrades
             const newLosingTrades = !isWin ? prevStats.losingTrades + 1 : prevStats.losingTrades
@@ -150,15 +154,14 @@ export function Dashboard({ user }: DashboardProps) {
               totalTrades: newTotalTrades,
               winningTrades: newWinningTrades,
               losingTrades: newLosingTrades,
-              totalPnl: message.balance - 10000.0, // Évolution par rapport au capital de départ
+              totalPnl: message.balance - 10000.0,
               winRate: (newWinningTrades / newTotalTrades) * 100
             }
           })
         }
 
-        // Traitement optionnel des flux de marché pour vos graphiques
         if (message.type === "MARKET_UPDATE") {
-          // Si vous possédez un state local pour le prix courant, mettez-le à jour ici
+          // Emplacement pour vos futurs states de graphiques graphiques en temps réel
         }
 
       } catch (err) {
@@ -167,14 +170,13 @@ export function Dashboard({ user }: DashboardProps) {
     }
 
     tradingSocket.onerror = (error) => {
-      console.error('[FRONTEND] Erreur de canal WebSocket:', error)
+      console.error('[FRONTEND] Erreur de canal WebSocket détectée:', error)
     }
 
     tradingSocket.onclose = () => {
       console.log('[FRONTEND] Connexion déconnectée du serveur de signaux.')
     }
 
-    // Coupure propre de l'écoute si l'utilisateur change de page
     return () => {
       tradingSocket.close()
     }
@@ -205,14 +207,13 @@ export function Dashboard({ user }: DashboardProps) {
             <EmergencyStopButton />
             <Button variant="ghost" size="sm" onClick={handleSignOut}>
               <LogOut className="w-4 h-4 mr-2" />
-              Deconnexion
+              Déconnexion
             </Button>
           </div>
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-6">
-        {/* Load error banner */}
         {loadError && (
           <div className="mb-6 p-4 rounded-lg border border-destructive/50 bg-destructive/5 text-destructive text-sm flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -248,12 +249,11 @@ export function Dashboard({ user }: DashboardProps) {
             </CardHeader>
             <CardContent>
               <p
-                className={`text-2xl font-bold ${loading ? 'text-muted-foreground' : stats.winRate >= 50 ? 'text-green-500' : 'text-red-500'
-                  }`}
+                className={`text-2xl font-bold ${loading ? 'text-muted-foreground' : stats.winRate >= 50 ? 'text-green-500' : 'text-red-500'}`}
               >
                 {loading ? '—' : `${stats.winRate.toFixed(1)}%`}
               </p>
-              <p className="text-xs text-muted-foreground">Taux de reussite</p>
+              <p className="text-xs text-muted-foreground">Taux de réussite</p>
             </CardContent>
           </Card>
 
@@ -266,8 +266,7 @@ export function Dashboard({ user }: DashboardProps) {
             </CardHeader>
             <CardContent>
               <p
-                className={`text-2xl font-bold ${loading ? 'text-muted-foreground' : stats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'
-                  }`}
+                className={`text-2xl font-bold ${loading ? 'text-muted-foreground' : stats.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}
               >
                 {loading
                   ? '—'
@@ -289,7 +288,7 @@ export function Dashboard({ user }: DashboardProps) {
                 {loading ? '—' : stats.totalErrors}
               </p>
               <p className="text-xs text-muted-foreground">
-                Severite moy: {stats.avgErrorSeverity.toFixed(1)}/10
+                Sévérité moy: {stats.avgErrorSeverity ? stats.avgErrorSeverity.toFixed(1) : '0.0'}/10
               </p>
             </CardContent>
           </Card>
@@ -301,8 +300,7 @@ export function Dashboard({ user }: DashboardProps) {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
                 <Activity className="w-4 h-4 text-yellow-500" />
-                {openTrades.length} Position{openTrades.length > 1 ? 's' : ''} Ouverte
-                {openTrades.length > 1 ? 's' : ''}
+                {openTrades.length} Position{openTrades.length > 1 ? 's' : ''} Ouverte{openTrades.length > 1 ? 's' : ''}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -340,7 +338,7 @@ export function Dashboard({ user }: DashboardProps) {
             </TabsTrigger>
             <TabsTrigger value="markets" className="flex items-center gap-2">
               <LineChart className="w-4 h-4" />
-              <span className="hidden sm:inline">Marches</span>
+              <span className="hidden sm:inline">Marchés</span>
             </TabsTrigger>
             <TabsTrigger value="settings" className="flex items-center gap-2">
               <Settings className="w-4 h-4" />
